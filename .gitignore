@@ -10,3 +10,4 @@ Session.vim
 /models/*
 *.swp
 out
+.vs

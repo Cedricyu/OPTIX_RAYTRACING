@@ -69,28 +69,5 @@ add_subdirectory(common/glfWindow EXCLUDE_FROM_ALL)
 
 set(optix_LIBRARY "")
 
-# a first, simple, hello-world applicaion that creates a context, and
-# says hello...
-add_subdirectory(example01_helloOptix)
 
-# the first example that sets up an entire optix 7 pipeline, renders a
-# test image, and saves that in a png file.
-add_subdirectory(example02_pipelineAndRayGen)
-
-# the same rendering example, but in a glfwindow with continuous
-# rendering
-add_subdirectory(example03_inGLFWindow)
-
-add_subdirectory(example04_firstTriangleMesh)
-add_subdirectory(example05_firstSBTData)
-add_subdirectory(example06_multipleObjects)
-add_subdirectory(example07_firstRealModel)
 add_subdirectory(example08_addingTextures)
-add_subdirectory(example09_shadowRays)
-add_subdirectory(example10_softShadows)
-add_subdirectory(example11_denoiseColorOnly)
-add_subdirectory(example12_denoiseSeparateChannels)
-
-add_subdirectory(practice)
-
-
