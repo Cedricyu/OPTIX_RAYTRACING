@@ -53,12 +53,12 @@ namespace osc {
 
   inline __both__ float len(const float3& v)
   {
-      return powf(v.x, 2) + powf(v.y, 2) + powf(v.z, 2);
+      return sqrt(powf(v.x, 2) + powf(v.y, 2) + powf(v.z, 2));
   }
 
   inline __both__ float3 normalize_float(float3& v)
   {
-      return v * (1.f / sqrt(len(v)));
+      return v * (1.f / len(v));
   }
 
   inline __both__ float3 cross_float(const float3& a, const float3& b)
@@ -267,21 +267,15 @@ namespace osc {
     // perform some simple "NdotD" shading
     // ------------------------------------------------------------------
 
-    //const float normalGeoObject = cross(attr1.vertex - attr0.vertex, attr2.vertex - attr0.vertex);
-
     const float3 rayDir = optixGetWorldRayDirection();
+    const float cosDN = 0.2f + .8f * fabsf(dot(rayDir, N));
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
 
-    //const OptixTraversableHandle handle = optixGetTransformListHandle(0); // Assumes OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING only!
-    //const float4* worldToObject = optixGetInstanceInverseTransformFromHandle(handle);
-
-    //const float3 normalGeoWorld = normalize_float(transformNormal(worldToObject, N)); // It's a normal, use inverse transpose matrix.
-
-    //const float cosDN  = 0.2f + .8f*fabsf((rayDir*N));
+   
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
-    prd.attenuation *= diffuseColor;
+    prd.attenuation *= diffuseColor * cosDN;
 
     prd.emitted = make_float3(0.0f,0.0f,0.0f);
 
