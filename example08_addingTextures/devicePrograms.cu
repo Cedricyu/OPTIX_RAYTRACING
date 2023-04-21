@@ -20,6 +20,7 @@
 #include <curand_kernel.h>
 
 #include "LaunchParams.h"
+#include "stdio.h"
 
 
 
@@ -86,8 +87,25 @@ namespace osc {
   __device__ __host__ float3 operator*(const float3& a, const float3& b) {
       return make_float3(a.x * b.x, a.y * b.y, a.z * b.z);
   }
+  __forceinline__ __device__ float dot(const float3& i, const float3& n)
+  {
+      return i.x*n.x + i.y*n.y + i.z *n.z ;
+  }
+  __forceinline__ __device__ float3 reflect(const float3& i, const float3& n)
+  {
+      return i -  n * dot(n, i) * 2.0f;
+  }
 
+  __forceinline__ __device__ float3 transformNormal(const float4* m, float3 const& v)
+  {
+      float3 r;
 
+      r.x = m[0].x * v.x + m[1].x * v.y + m[2].x * v.z;
+      r.y = m[0].y * v.x + m[1].y * v.y + m[2].y * v.z;
+      r.z = m[0].z * v.x + m[1].z * v.y + m[2].z * v.z;
+
+      return r;
+  }
 
   struct RadiancePRD
   {
@@ -104,39 +122,7 @@ namespace osc {
       int          done;
   };
 
-  struct Onb
-  {
-      __forceinline__ __device__ Onb(const float3& normal)
-      {
-          m_normal = normal;
-
-          if (fabs(m_normal.x) > fabs(m_normal.z))
-          {
-              m_binormal.x = -m_normal.y;
-              m_binormal.y = m_normal.x;
-              m_binormal.z = 0;
-          }
-          else
-          {
-              m_binormal.x = 0;
-              m_binormal.y = -m_normal.z;
-              m_binormal.z = m_normal.y;
-          }
-
-          m_binormal = normalize_float(m_binormal);
-          m_tangent = cross_float(m_binormal, m_normal);
-      }
-
-      __forceinline__ __device__ void inverse_transform(float3& p) const
-      {
-          p = m_tangent * p.x + m_binormal * p.y + m_normal * p.z;
-      }
-
-      float3 m_tangent;
-      float3 m_binormal;
-      float3 m_normal;
-  };
-
+  
   
   static __forceinline__ __device__
   void *unpackPointer( uint32_t i0, uint32_t i1 )
@@ -251,9 +237,14 @@ namespace osc {
       const float3 &A     = vec_to_float(sbtData.vertex[index.x]);
       const float3 &B     = vec_to_float(sbtData.vertex[index.y]);
       const float3 &C     = vec_to_float(sbtData.vertex[index.z]);
+      printf("A after init = %f %f %f\n", A.x, A.y, A.z);
+      printf("B after init = %f %f %f\n", B.x, B.y, B.z);
+      printf("C after init = %f %f %f\n", C.x, C.y, C.z);
       N                  = normalize_float(cross_float(B-A,C-A));
     }
-    N = normalize_float(N);
+
+   //printf("N after init = %f %f %f\n", N.x, N.y, N.z);
+    //N = normalize_float(N);
 
 
 
@@ -269,16 +260,23 @@ namespace osc {
         +         v * sbtData.texcoord[index.z];
       
       vec4f fromTexture = tex2D<float4>(sbtData.texture,tc.x,tc.y);
-      diffuseColor *= vec_to_float((vec3f)fromTexture);
+      diffuseColor = vec_to_float((vec3f)fromTexture);
     }
     
     // ------------------------------------------------------------------
     // perform some simple "NdotD" shading
     // ------------------------------------------------------------------
+
+    //const float normalGeoObject = cross(attr1.vertex - attr0.vertex, attr2.vertex - attr0.vertex);
+
     const float3 rayDir = optixGetWorldRayDirection();
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
 
+    //const OptixTraversableHandle handle = optixGetTransformListHandle(0); // Assumes OPTIX_TRAVERSABLE_GRAPH_FLAG_ALLOW_SINGLE_LEVEL_INSTANCING only!
+    //const float4* worldToObject = optixGetInstanceInverseTransformFromHandle(handle);
+
+    //const float3 normalGeoWorld = normalize_float(transformNormal(worldToObject, N)); // It's a normal, use inverse transpose matrix.
 
     //const float cosDN  = 0.2f + .8f*fabsf((rayDir*N));
     RadiancePRD prd = loadClosesthitRadiancePRD();
@@ -287,11 +285,12 @@ namespace osc {
 
     prd.emitted = make_float3(0.0f,0.0f,0.0f);
 
-    float3 w_in;
-    Onb onb(N);
-    onb.inverse_transform(w_in);
-    prd.direction = w_in;
+    //printf("N = %f %f %f\n", N.x, N.y, N.z);
+
+    const float3 reflectionWorld = (reflect(rayDir, N));
+    prd.direction = reflectionWorld;
     prd.origin = P;
+    //printf("direction %f %f %f\n", reflectionWorld.x, reflectionWorld.y , reflectionWorld.z);
 
     prd.done = false;
     storeClosesthitRadiancePRD(prd);
@@ -410,18 +409,7 @@ namespace osc {
         prd.seed = 1;
         prd.depth = 0;
 
-        
-        const float r1 = curand_uniform(&state);
-        const float r2 = curand_uniform(&state);
-        const float k1 = r1 * 2 * M_PI;
-        const float k2 = (r2 * 2) - 1;
-        const float theta = k1;
-        const float phi = acos(k2);
-        const float X = sin(phi) * cos(theta)/500;
-        const float Y = sin(phi) * sin(theta)/500;
-        const float Z = cos(phi)/500;
-        const vec3f direction = vec3f(X, Y, Z);
-        for (; prd.depth < 1 ; prd.depth ++ ) {
+        for (; prd.depth < 2 ; prd.depth ++ ) {
 
 
             traceRadiance(optixLaunchParams.traversable,
