@@ -35,7 +35,6 @@ namespace osc {
   extern "C" __constant__ LaunchParams optixLaunchParams;
 
   // for this simple example, we have a single ray type
-  enum { SURFACE_RAY_TYPE=0, RAY_TYPE_COUNT };
 
   __device__ __host__ float3 operator+=(float3& a, const float3& b) {
       a.x += b.x; a.y += b.y; a.z += b.z;
@@ -210,6 +209,16 @@ namespace osc {
   // create a single, dummy, set of them (we do have to have at least
   // one group of them to set up the SBT)
   //------------------------------------------------------------------------------
+
+  extern "C" __global__ void __closesthit__shadow()
+  {
+      RadiancePRD prd = {};
+      prd = loadClosesthitRadiancePRD();
+
+      prd.attenuation = make_float3(0.f, 0.f, 0.f);
+
+      storeClosesthitRadiancePRD(prd);
+  }
   
   extern "C" __global__ void __closesthit__radiance()
   {
@@ -228,30 +237,61 @@ namespace osc {
     // compute normal, using either shading normal (if avail), or
     // geometry normal (fallback)
     // ------------------------------------------------------------------
-    float3 N;
-    if (sbtData.normal) {
-      N = vec_to_float( (1.f-u-v) * sbtData.normal[index.x]
-        +         u * sbtData.normal[index.y]
-        +         v * sbtData.normal[index.z]);
-    } else {
-      const float3 &A     = vec_to_float(sbtData.vertex[index.x]);
-      const float3 &B     = vec_to_float(sbtData.vertex[index.y]);
-      const float3 &C     = vec_to_float(sbtData.vertex[index.z]);
-      printf("A after init = %f %f %f\n", A.x, A.y, A.z);
-      printf("B after init = %f %f %f\n", B.x, B.y, B.z);
-      printf("C after init = %f %f %f\n", C.x, C.y, C.z);
-      N                  = normalize_float(cross_float(B-A,C-A));
-    }
+    const float3& A = vec_to_float(sbtData.vertex[index.x]);
+    const float3& B = vec_to_float(sbtData.vertex[index.y]);
+    const float3& C = vec_to_float(sbtData.vertex[index.z]);
 
-   //printf("N after init = %f %f %f\n", N.x, N.y, N.z);
-    //N = normalize_float(N);
+    float3 Ng = cross_float(B-A,C -A);
+    float3 Ns = (sbtData.normal)
+        ? vec_to_float((1.f - u - v) * sbtData.normal[index.x]
+            + u * sbtData.normal[index.y]
+            + v * sbtData.normal[index.z])
+        : Ng;
 
-
+    
 
     // ------------------------------------------------------------------
     // compute diffuse material color, including diffuse texture, if
     // available
     // ------------------------------------------------------------------
+    const float3 surfPos
+        = vec_to_float((1.f - u - v) * sbtData.vertex[index.x]
+        + u * sbtData.vertex[index.y]
+        + v * sbtData.vertex[index.z]);
+    
+    const float3 lightPos = make_float3(-907.108f, 2205.875f, -400.0267f);
+    const float3 lightDir = lightPos - surfPos;
+
+
+    float3  lightVisibility = make_float3(0.0f, 0.0f, 0.0f);
+    // the values we store the PRD pointer in:
+    uint32_t u0, u1, u2;
+
+    u0 = __float_as_uint(lightVisibility.x);
+    u1 = __float_as_uint(lightVisibility.y);
+    u2 = __float_as_uint(lightVisibility.z);
+
+   
+    optixTrace(optixLaunchParams.traversable,
+        Ns + Ng * 1e-3f,
+        lightDir,
+        1e-3f,      // tmin
+        1.f - 1e-3f,  // tmax
+        0.0f,       // rayTime
+        OptixVisibilityMask(255),
+        // For shadow rays: skip any/closest hit shaders and terminate on first
+        // intersection with anything. The miss shader is used to mark if the
+        // light was visible.
+        OPTIX_RAY_FLAG_DISABLE_ANYHIT
+        | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT
+        | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+        SHADOW_RAY_TYPE,            // SBT offset
+        RAY_TYPE_COUNT,               // SBT stride
+        SHADOW_RAY_TYPE,            // missSBTIndex 
+        u0, u1, u2);
+
+    lightVisibility = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
+
     float3 diffuseColor = vec_to_float(sbtData.color);
     if (sbtData.hasTexture && sbtData.texcoord) {
       const vec2f tc
@@ -268,20 +308,21 @@ namespace osc {
     // ------------------------------------------------------------------
 
     const float3 rayDir = optixGetWorldRayDirection();
-    const float cosDN = 0.2f + .8f * fabsf(dot(rayDir, N));
+    const float cosDN = 0.2f + .8f * fabsf(dot(rayDir, Ns));
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
 
    
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
-    prd.attenuation *= diffuseColor * cosDN;
+    prd.attenuation *= (((lightVisibility * .8f) * cosDN) * diffuseColor + diffuseColor * 0.1f  + diffuseColor * cosDN * .2f );
+
 
     prd.emitted = make_float3(0.0f,0.0f,0.0f);
 
     //printf("N = %f %f %f\n", N.x, N.y, N.z);
 
-    const float3 reflectionWorld = (reflect(rayDir, N));
+    const float3 reflectionWorld = (reflect(rayDir, Ns));
     prd.direction = reflectionWorld;
     prd.origin = P;
     //printf("direction %f %f %f\n", reflectionWorld.x, reflectionWorld.y , reflectionWorld.z);
@@ -293,7 +334,9 @@ namespace osc {
   extern "C" __global__ void __anyhit__radiance()
   { /*! for this simple example, this will remain empty */ }
 
-
+  extern "C" __global__ void __anyhit__shadow()
+  { /*! not going to be used */
+  }
   
   //------------------------------------------------------------------------------
   // miss program that gets called for any ray that did not have a
@@ -311,6 +354,18 @@ namespace osc {
     prd.done = true;
 
     storeMissRadiancePRD(prd);
+  }
+
+
+  extern "C" __global__ void __miss__shadow()
+  {
+      // we didn't hit anything, so the light is visible
+      RadiancePRD prd = {};
+      prd = loadClosesthitRadiancePRD();
+
+      prd.attenuation = make_float3(1.f, 1.f, 1.f);
+
+      storeClosesthitRadiancePRD(prd);
   }
 
   static __forceinline__ __device__ void traceRadiance(
@@ -340,9 +395,9 @@ namespace osc {
           0.0f,   // rayTime
           OptixVisibilityMask(255),
           OPTIX_RAY_FLAG_DISABLE_ANYHIT,//OPTIX_RAY_FLAG_NONE,
-          SURFACE_RAY_TYPE,             // SBT offset
+          RADIANCE_RAY_TYPE,             // SBT offset
           RAY_TYPE_COUNT,               // SBT stride
-          SURFACE_RAY_TYPE,             // missSBTIndex 
+          RADIANCE_RAY_TYPE,             // missSBTIndex 
           u0, u1, u2, u3, u4, u5, u6, u7, u8, u9, u10, u11, u12, u13, u14, u15, u16, u17);
 
       prd.attenuation = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
