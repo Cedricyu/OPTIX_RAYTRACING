@@ -41,6 +41,11 @@ namespace osc {
       return a;
   }
 
+  __device__ __host__ float3 operator-=(float3& a, const float3& b) {
+      a.x -= b.x; a.y -= b.y; a.z -= b.z;
+      return a;
+  }
+
   __device__ __host__ float3 operator*=(float3& a, const float3& b) {
       a.x *= b.x; a.y *= b.y; a.z *= b.z;
       return a;
@@ -247,8 +252,14 @@ namespace osc {
             + u * sbtData.normal[index.y]
             + v * sbtData.normal[index.z])
         : Ng;
-
     
+    const float3 rayDir = optixGetWorldRayDirection();
+    /*
+    if (dot(rayDir, Ng) > 0.f) Ng = Ng*-1.f;
+ 
+    if (dot(Ng, Ns) < 0.f)
+        Ns -= Ng * 2.f * dot(Ng, Ns);
+     */
 
     // ------------------------------------------------------------------
     // compute diffuse material color, including diffuse texture, if
@@ -273,7 +284,7 @@ namespace osc {
 
    
     optixTrace(optixLaunchParams.traversable,
-        Ns + Ng * 1e-3f,
+        surfPos ,
         lightDir,
         1e-3f,      // tmin
         1.f - 1e-3f,  // tmax
@@ -307,7 +318,7 @@ namespace osc {
     // perform some simple "NdotD" shading
     // ------------------------------------------------------------------
 
-    const float3 rayDir = optixGetWorldRayDirection();
+ 
     const float cosDN = 0.2f + .8f * fabsf(dot(rayDir, Ns));
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
