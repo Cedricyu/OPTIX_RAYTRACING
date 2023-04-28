@@ -51,6 +51,10 @@ namespace osc {
       return a;
   }
 
+  __device__ __host__ float3 operator-(const float3& a) {
+      return make_float3(-a.x, -a.y , -a.z );
+  }
+
   __device__ __host__ float3 operator*(const float3& a, const float& b) {
       return make_float3(a.x * b, a.y * b, a.z * b);
   }
@@ -60,7 +64,7 @@ namespace osc {
       return sqrt(powf(v.x, 2) + powf(v.y, 2) + powf(v.z, 2));
   }
 
-  inline __both__ float3 normalize_float(float3& v)
+  inline __both__ float3 normalize(float3& v)
   {
       return v * (1.f / len(v));
   }
@@ -70,10 +74,6 @@ namespace osc {
       return make_float3(a.y * b.z - b.y * a.z,
           a.z * b.x - b.z * a.x,
           a.x * b.y - b.x * a.y);
-  }
-
-  __device__ __host__ float3 vec_to_float(const vec3f& a) {
-      return make_float3(a.x, a.y, a.z);
   }
 
   __device__ __host__ vec3f float_to_vec(float3& a) {
@@ -242,13 +242,13 @@ namespace osc {
     // compute normal, using either shading normal (if avail), or
     // geometry normal (fallback)
     // ------------------------------------------------------------------
-    const float3& A = vec_to_float(sbtData.vertex[index.x]);
-    const float3& B = vec_to_float(sbtData.vertex[index.y]);
-    const float3& C = vec_to_float(sbtData.vertex[index.z]);
+    const float3& A = static_cast<float3>(sbtData.vertex[index.x]);
+    const float3& B = static_cast<float3>(sbtData.vertex[index.y]);
+    const float3& C = static_cast<float3>(sbtData.vertex[index.z]);
 
     float3 Ng = cross_float(B-A,C -A);
     float3 Ns = (sbtData.normal)
-        ? vec_to_float((1.f - u - v) * sbtData.normal[index.x]
+        ? static_cast<float3>((1.f - u - v) * sbtData.normal[index.x]
             + u * sbtData.normal[index.y]
             + v * sbtData.normal[index.z])
         : Ng;
@@ -266,7 +266,7 @@ namespace osc {
     // available
     // ------------------------------------------------------------------
     const float3 surfPos
-        = vec_to_float((1.f - u - v) * sbtData.vertex[index.x]
+        = static_cast<float3>((1.f - u - v) * sbtData.vertex[index.x]
         + u * sbtData.vertex[index.y]
         + v * sbtData.vertex[index.z]);
     
@@ -303,7 +303,7 @@ namespace osc {
 
     lightVisibility = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
 
-    float3 diffuseColor = vec_to_float(sbtData.color);
+    float3 diffuseColor = static_cast<float3>(sbtData.color);
     if (sbtData.hasTexture && sbtData.texcoord) {
       const vec2f tc
         = (1.f-u-v) * sbtData.texcoord[index.x]
@@ -311,7 +311,7 @@ namespace osc {
         +         v * sbtData.texcoord[index.z];
       
       vec4f fromTexture = tex2D<float4>(sbtData.texture,tc.x,tc.y);
-      diffuseColor = vec_to_float((vec3f)fromTexture);
+      diffuseColor = static_cast<float3>((vec3f)fromTexture);
     }
     
     // ------------------------------------------------------------------
@@ -319,7 +319,7 @@ namespace osc {
     // ------------------------------------------------------------------
 
  
-    const float cosDN = 0.2f + .8f * fabsf(dot(rayDir, Ns));
+    const float cosDN = .8f * fabsf(dot(rayDir, Ns));
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
 
@@ -473,8 +473,8 @@ namespace osc {
 
 
             traceRadiance(optixLaunchParams.traversable,
-                vec_to_float(ray_origin),
-                vec_to_float(rayDir),
+                static_cast<float3>(ray_origin),
+                static_cast<float3>(rayDir),
                 0.f,    // tmin
                 1e20f,  // tmax
                 prd
