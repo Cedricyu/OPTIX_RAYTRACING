@@ -304,6 +304,8 @@ namespace osc {
     lightVisibility = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
 
     float3 diffuseColor = static_cast<float3>(sbtData.color);
+    if (sbtData.dissolve == 0.500000)
+        diffuseColor = make_float3(0, 0, 0);
     if (sbtData.hasTexture && sbtData.texcoord) {
       const vec2f tc
         = (1.f-u-v) * sbtData.texcoord[index.x]
@@ -313,7 +315,8 @@ namespace osc {
       vec4f fromTexture = tex2D<float4>(sbtData.texture,tc.x,tc.y);
       diffuseColor = static_cast<float3>((vec3f)fromTexture);
     }
-    
+    if (sbtData.dissolve == 0.500000)
+        diffuseColor = make_float3(1.0f, 1.0f, 1.0f);
     // ------------------------------------------------------------------
     // perform some simple "NdotD" shading
     // ------------------------------------------------------------------
@@ -326,10 +329,10 @@ namespace osc {
    
     RadiancePRD prd = loadClosesthitRadiancePRD();
 
-    prd.attenuation *= (((lightVisibility * .8f) * cosDN) * diffuseColor + diffuseColor * 0.1f  + diffuseColor * cosDN * .2f );
+    prd.attenuation = (((lightVisibility * .8f) * cosDN) * diffuseColor + diffuseColor * 0.1f  + diffuseColor * cosDN * .2f );
 
 
-    prd.emitted = make_float3(0.0f,0.0f,0.0f);
+    prd.emitted = make_float3(0.9f,0.9f,0.9f);
 
     //printf("N = %f %f %f\n", N.x, N.y, N.z);
 
@@ -457,10 +460,8 @@ namespace osc {
     vec3f ray_origin = camera.position;
 
     int sample_per_pixel = 1;
-    curandState state;
-    curand_init(clock64(), ix, 0, &state);
    
-    float3 pixelColorPRD = make_float3(0.f, 0.f, 0.f);
+    float3 pixelColorPRD = make_float3(1.f, 1.f, 1.f);
     for (int i = 0; i < sample_per_pixel ; i++) {
 
         // the miss or hit program, anyway
@@ -481,7 +482,7 @@ namespace osc {
             );
 
             pixelColorPRD += prd.emitted;
-            pixelColorPRD += prd.attenuation;
+            pixelColorPRD *= prd.attenuation;
 
             if (prd.done) // TODO RR, variable for depth
                 break;

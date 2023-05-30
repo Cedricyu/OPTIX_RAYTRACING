@@ -26,6 +26,7 @@ namespace osc {
 
   struct TriangleMeshSBTData {
     vec3f  color;
+    float  dissolve; // Add dissolve
     vec3f *vertex;
     vec3f *normal;
     vec2f *texcoord;

@@ -33,6 +33,8 @@ namespace osc {
 
     // material data:
     vec3f              diffuse;
+    float              dissolve;
+
     int                diffuseTextureID { -1 };
   };
 

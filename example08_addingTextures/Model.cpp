@@ -190,6 +190,8 @@ namespace osc {
                     addVertex(mesh, attributes, idx2, knownVertices));
           mesh->index.push_back(idx);
           mesh->diffuse = (const vec3f&)materials[materialID].diffuse;
+          // Add dissolve
+          mesh->dissolve = (const float&)materials[materialID].dissolve;
           mesh->diffuseTextureID = loadTexture(model,
                                                knownTextures,
                                                materials[materialID].diffuse_texname,
