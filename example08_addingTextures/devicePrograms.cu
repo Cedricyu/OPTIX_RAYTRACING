@@ -111,6 +111,13 @@ namespace osc {
       return r;
   }
 
+
+  inline __both__ float3 unit_vector(const float3& v)
+  {
+      float3 f = v * (1.f / len(v));
+      return f;
+  }
+
   struct RadiancePRD
   {
       // these are produced by the caller, passed into trace, consumed/modified by CH and MS and consumed again by the caller after trace returned.
@@ -126,23 +133,78 @@ namespace osc {
       int          done;
   };
 
-  
-  
-  static __forceinline__ __device__
-  void *unpackPointer( uint32_t i0, uint32_t i1 )
+  class onb
   {
-    const uint64_t uptr = static_cast<uint64_t>( i0 ) << 32 | i1;
-    void*           ptr = reinterpret_cast<void*>( uptr ); 
-    return ptr;
+  public:
+      __device__ onb() {}
+      __device__ inline float3 operator[](int i) const { return axis[i]; }
+      __device__ float3 u() const { return axis[0]; }
+      __device__ float3 v() const { return axis[1]; }
+      __device__ float3 w() const { return axis[2]; }
+      __device__ float3 local(float a, float b, float c) const {
+
+          float3 f;
+          f.x = a * u().x + a * u().y + a * u().z;
+          f.y = b * v().x + b * v().y + b * v().z;
+          f.z = c * w().x + c * w().y + c * w().z;
+          return f;
+      }
+      __device__ float3 local(const float3& a) const {
+
+          float3 f;
+          f.x = a.x * u().x + a.x * u().y + a.x * u().z;
+          f.y = a.y * v().x + a.y * v().y + a.y * v().z;
+          f.z = a.z * w().x + a.z * w().y + a.z * w().z;
+          return f;
+
+      }
+      __device__ void build_from_w(const float3&);
+      float3 axis[3];
+  };
+
+   __forceinline__ __device__
+      void onb::build_from_w(const float3& n) {
+      axis[2] = unit_vector(n);
+      float3 a;
+      if (fabs(w().x) > 0.9)
+          a = make_float3(0, 1, 0);
+      else
+          a = make_float3(1, 0, 0);
+      axis[1] = unit_vector(cross_float(w(), a));
+      axis[0] = cross_float(w(), v());
   }
 
-  static __forceinline__ __device__
-  void  packPointer( void* ptr, uint32_t& i0, uint32_t& i1 )
-  {
-    const uint64_t uptr = reinterpret_cast<uint64_t>( ptr );
-    i0 = uptr >> 32;
-    i1 = uptr & 0x00000000ffffffff;
-  }
+
+   __forceinline__ __device__ float random_float()
+   {
+       int i = threadIdx.x + blockIdx.x * blockDim.x;
+       // printf("%d i = %d\n", i);
+
+       curandState state;
+       curand_init(clock64(), i, 0, &state);
+
+       return curand_uniform(&state);
+
+   }
+
+   __forceinline__ __device__ float3 ramdom_float3()
+   {
+       return make_float3(random_float(), random_float(), random_float());
+
+   }
+
+
+   __forceinline__ __device__ float3 randomCosineDirection()
+   {
+       float r1 = random_float();
+       float r2 = random_float();
+       float z = sqrt(1 - r2);
+       float phi = 2 * M_PI * r1;
+       float x = cos(phi) * sqrt(r2);
+       float y = sin(phi) * sqrt(r2);
+       return make_float3(x, y, z);
+
+   }
 
   template<typename T>
   static __forceinline__ __device__ T *getPRD()
@@ -335,8 +397,12 @@ namespace osc {
     prd.emitted = make_float3(0.9f,0.9f,0.9f);
 
     //printf("N = %f %f %f\n", N.x, N.y, N.z);
-
+    onb uvw;
+    uvw.build_from_w(Ns);
     const float3 reflectionWorld = (reflect(rayDir, Ns));
+    const float3 random_dir = randomCosineDirection();
+    //printf("N = %f %f %f\n", random_dir.x, random_dir.y, random_dir.z);
+
     prd.direction = reflectionWorld;
     prd.origin = P;
     //printf("direction %f %f %f\n", reflectionWorld.x, reflectionWorld.y , reflectionWorld.z);
