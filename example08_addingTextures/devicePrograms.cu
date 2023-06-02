@@ -14,14 +14,15 @@
 // limitations under the License.                                           //
 // ======================================================================== //
 
+
+
 #include <optix_device.h>
 #include <cuda_runtime.h>
-
 #include <curand_kernel.h>
 
 #include "LaunchParams.h"
 #include "stdio.h"
-
+#include "math.h"
 
 
 
@@ -64,6 +65,20 @@ namespace osc {
       return sqrt(powf(v.x, 2) + powf(v.y, 2) + powf(v.z, 2));
   }
 
+  inline __both__ float length_squared(const float3& v)
+  {
+      return powf(v.x, 2) + powf(v.y, 2) + powf(v.z, 2);
+  }
+
+
+
+  inline __both__ float3 unit_vector(const float3& v)
+  {
+      float3 f = v * (1.f / len(v));
+      return f;
+  }
+
+
   inline __both__ float3 normalize(float3& v)
   {
       return v * (1.f / len(v));
@@ -88,6 +103,10 @@ namespace osc {
       return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
   }
 
+  __device__ __host__ float3 operator*(const float& a, const float3& b) {
+      return make_float3(a * b.x, a * b.y, a * b.z);
+  }
+
   __device__ __host__ float3 operator*(const float3& a, const float3& b) {
       return make_float3(a.x * b.x, a.y * b.y, a.z * b.z);
   }
@@ -100,6 +119,76 @@ namespace osc {
       return i -  n * dot(n, i) * 2.0f;
   }
 
+
+  __forceinline__ __device__ float3 cross(const float3& a, const float3& b)
+  { 
+      return make_float3(a.y * b.z - b.z * a.y, -(a.x * b.z - a.z * b.x), a.x * b.y - a.y * b.x);
+  }
+
+
+  // generate random number
+  __forceinline__ __device__ float random_float()
+  {
+      int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+      curandState state;
+      curand_init(clock64(), i, 0, &state);
+
+      return curand_uniform(&state);
+
+  }
+
+  __forceinline__ __device__ float3 ramdom_float3()
+  {
+      return make_float3(random_float(), random_float(), random_float());
+
+  }
+
+  __forceinline__ __device__ float3 randomCosineDirection()
+  {
+      float r1 = random_float();
+      float r2 = random_float();
+      float z = sqrt(1 - r2);
+      float phi = 2 * M_PI * r1;
+      float x = cos(phi) * sqrt(r2);
+      float y = sin(phi) * sqrt(r2);
+      return make_float3(x, y, z);
+
+  }
+
+  __forceinline__ __device__ float reflectance(const float& cos_theta, const float& ratio)
+  {
+      // Use Schlick's approximation for reflectance.
+      auto r0 = (1 - ratio) / (1 + ratio);
+      r0 = r0 * r0;
+      return r0 + (1 - r0) * pow((1 - cos_theta), 5);
+
+  }
+
+  // 折射方向, ratio  折射率比值  可能折射或反射
+
+  __device__ float3 refract(const float3& unit_direction, const float3& normal, double ratio) {
+
+      float cos_theta = fminf(dot(-unit_direction, normal), 1.0);
+      float sin_theta = sqrt(1.0 - cos_theta * cos_theta);
+
+      bool cannot_refract = ratio * sin_theta > 1.0; //是否為全反射
+
+      float3 new_direction;
+
+      if (cannot_refract || reflectance(cos_theta, ratio) > random_float()) {
+          new_direction = reflect(unit_direction, normal);
+      }
+      else {
+          float3 r_out_perp = ratio * (unit_direction + cos_theta * normal);
+          float3 r_out_parallel = -sqrt(fabs(1.0 - length_squared(r_out_perp))) * normal;
+          new_direction = r_out_perp + r_out_parallel;
+      }
+
+      return new_direction;
+
+  }
+
   __forceinline__ __device__ float3 transformNormal(const float4* m, float3 const& v)
   {
       float3 r;
@@ -109,6 +198,49 @@ namespace osc {
       r.z = m[0].z * v.x + m[1].z * v.y + m[2].z * v.z;
 
       return r;
+  }
+
+
+  class onb
+  {
+  public:
+      __device__ onb() {}
+      __device__ inline float3 operator[](int i) const { return axis[i]; }
+      __device__ float3 u() const { return axis[0]; }
+      __device__ float3 v() const { return axis[1]; }
+      __device__ float3 w() const { return axis[2]; }
+      __device__ float3 local(float a, float b, float c) const {
+
+          float3 f;
+          f.x = a * u().x + a * u().y + a * u().z;
+          f.y = b * v().x + b * v().y + b * v().z;
+          f.z = c * w().x + c * w().y + c * w().z;
+          return f;
+      }
+      __device__ float3 local(const float3& a) const {
+
+          float3 f;
+          f.x = a.x * u().x + a.x * u().y + a.x * u().z;
+          f.y = a.y * v().x + a.y * v().y + a.y * v().z;
+          f.z = a.z * w().x + a.z * w().y + a.z * w().z;
+          return f;
+
+      }
+      __device__ void build_from_w(const float3&);
+  
+  public:
+      float3 axis[3];
+  };
+
+  void onb::build_from_w(const float3& n) {
+      axis[2] = unit_vector(n);
+      float3 a;
+      if (fabs(w().x) > 0.9)
+          a = make_float3(0, 1, 0);
+      else
+          a = make_float3(1, 0, 0);
+      axis[1] = unit_vector(cross(w(), a));
+      axis[0] = cross(w(), v());
   }
 
   struct RadiancePRD
@@ -322,7 +454,7 @@ namespace osc {
     // ------------------------------------------------------------------
 
  
-    const float cosDN = .8f * fabsf(dot(rayDir, Ns));
+    const float cosDN =0.1 + .8f * fabsf(dot(rayDir, Ns));
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
 
@@ -332,11 +464,21 @@ namespace osc {
     prd.attenuation = (((lightVisibility * .8f) * cosDN) * diffuseColor + diffuseColor * 0.1f  + diffuseColor * cosDN * .2f );
 
 
-    prd.emitted = make_float3(0.9f,0.9f,0.9f);
+    prd.emitted = make_float3(1.f,1.f,1.f);
 
     //printf("N = %f %f %f\n", N.x, N.y, N.z);
 
-    const float3 reflectionWorld = (reflect(rayDir, Ns));
+    float3 reflectionWorld;
+
+    if (sbtData.dissolve != 1) {
+        onb uvw;
+        uvw.build_from_w(Ns);
+        reflectionWorld = uvw.local(randomCosineDirection());
+    }
+    else {
+        reflectionWorld = (reflect(rayDir, Ns));
+    }
+
     prd.direction = reflectionWorld;
     prd.origin = P;
     //printf("direction %f %f %f\n", reflectionWorld.x, reflectionWorld.y , reflectionWorld.z);
@@ -459,7 +601,7 @@ namespace osc {
 
     vec3f ray_origin = camera.position;
 
-    int sample_per_pixel = 1;
+    int sample_per_pixel = 2;
    
     float3 pixelColorPRD = make_float3(1.f, 1.f, 1.f);
     for (int i = 0; i < sample_per_pixel ; i++) {
@@ -470,8 +612,15 @@ namespace osc {
         prd.seed = 1;
         prd.depth = 0;
 
-        for (; prd.depth < 2 ; prd.depth ++ ) {
+        int depth = 2;
 
+        for (; prd.depth < depth ; prd.depth ++ ) {
+
+
+            if (prd.depth == depth - 1) {
+                pixelColorPRD *= prd.attenuation;
+                break;
+            }
 
             traceRadiance(optixLaunchParams.traversable,
                 static_cast<float3>(ray_origin),
@@ -481,8 +630,10 @@ namespace osc {
                 prd
             );
 
-            pixelColorPRD += prd.emitted;
             pixelColorPRD *= prd.attenuation;
+            pixelColorPRD += prd.emitted;
+
+            
 
             if (prd.done) // TODO RR, variable for depth
                 break;
@@ -494,13 +645,15 @@ namespace osc {
         }
     }
     auto scale = 1.0 / sample_per_pixel;
+
     pixelColorPRD.x = sqrt(scale * pixelColorPRD.x);
     pixelColorPRD.y = sqrt(scale * pixelColorPRD.y);
     pixelColorPRD.z = sqrt(scale * pixelColorPRD.z);
 
-    const int r = int(255.99f*pixelColorPRD.x);
-    const int g = int(255.99f*pixelColorPRD.y);
-    const int b = int(255.99f*pixelColorPRD.z);
+    const int r = int(255.99f * min(pixelColorPRD.x , 1.f));
+    const int g = int(255.99f * min(pixelColorPRD.y , 1.f));
+    const int b = int(255.99f * min(pixelColorPRD.z , 1.f));
+
 
     // convert to 32-bit rgba value (we explicitly set alpha to 0xff
     // to make stb_image_write happy ...
