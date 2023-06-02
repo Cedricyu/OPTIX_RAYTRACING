@@ -118,7 +118,7 @@ namespace osc {
     extern "C" int main(int ac, char** av)
     {
 
-        const char* definePath = "C:\\Users\\user\\Downloads\\OPTIX_RAYTRACING-shadow\\OPTIX_RAYTRACING-shadow\\models";
+        const char* definePath = "C:\\Users\\CG Lab\\Desktop\\OPTIX_RAYTRACING\\models";
         const char* extenName = "*.*";
 
         char* curPath;
