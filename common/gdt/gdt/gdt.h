@@ -126,7 +126,7 @@ namespace gdt {
   // inline __both__ float cos(float f) { return ::cosf(f); }
   // inline __both__ double cos(double f) { return ::cos(f); }
 
-  using ::saturate;
+  // using ::saturate;
 #else
   using std::min;
   using std::max;
