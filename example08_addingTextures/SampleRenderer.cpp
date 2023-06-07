@@ -580,9 +580,16 @@ namespace osc {
                 if (mesh->diffuseTextureID >= 0) {
                     rec.data.hasTexture = true;
                     rec.data.texture = textureObjects[mesh->diffuseTextureID];
+
+                    if (mesh->diffuseTextureID == 8) {
+                        rec.data.dissolve = 1;
+                    }else{
+                        rec.data.dissolve = 0;
+                    }
                 }
                 else {
                     rec.data.hasTexture = false;
+
                 }
                 rec.data.index = (vec3i*)indexBuffer[meshID].d_pointer();
                 rec.data.vertex = (vec3f*)vertexBuffer[meshID].d_pointer();
