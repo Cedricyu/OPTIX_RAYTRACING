@@ -436,8 +436,7 @@ namespace osc {
     lightVisibility = make_float3(__uint_as_float(u0), __uint_as_float(u1), __uint_as_float(u2));
 
     float3 diffuseColor = static_cast<float3>(sbtData.color);
-    if (sbtData.dissolve == 0.500000)
-        diffuseColor = make_float3(0, 0, 0);
+  
     if (sbtData.hasTexture && sbtData.texcoord) {
       const vec2f tc
         = (1.f-u-v) * sbtData.texcoord[index.x]
@@ -447,14 +446,13 @@ namespace osc {
       vec4f fromTexture = tex2D<float4>(sbtData.texture,tc.x,tc.y);
       diffuseColor = static_cast<float3>((vec3f)fromTexture);
     }
-    if (sbtData.dissolve == 0.500000)
-        diffuseColor = make_float3(1.0f, 1.0f, 1.0f);
+
     // ------------------------------------------------------------------
     // perform some simple "NdotD" shading
     // ------------------------------------------------------------------
 
  
-    const float cosDN =0.1 + .8f * fabsf(dot(rayDir, Ns));
+    const float cosDN = 0.1 + .8f * fabsf(dot(rayDir, Ns));
 
     const float3 P = optixGetWorldRayOrigin() + rayDir * optixGetRayTmax();
 
@@ -464,7 +462,7 @@ namespace osc {
     prd.attenuation = (((lightVisibility * .8f) * cosDN) * diffuseColor + diffuseColor * 0.1f  + diffuseColor * cosDN * .2f );
 
 
-    prd.emitted = make_float3(1.f,1.f,1.f);
+    prd.emitted = lightVisibility;
 
     //printf("N = %f %f %f\n", N.x, N.y, N.z);
 
@@ -473,10 +471,11 @@ namespace osc {
     if (sbtData.dissolve != 1) {
         onb uvw;
         uvw.build_from_w(Ns);
-        reflectionWorld = uvw.local(randomCosineDirection());
+        reflectionWorld = uvw.local(randomCosineDirection())*0.05 + reflect(rayDir, Ns);
+        reflectionWorld = unit_vector(reflectionWorld);
     }
     else {
-        reflectionWorld = (reflect(rayDir, Ns));
+        reflectionWorld = reflect(rayDir, Ns);
     }
 
     prd.direction = reflectionWorld;
@@ -601,9 +600,13 @@ namespace osc {
 
     vec3f ray_origin = camera.position;
 
-    int sample_per_pixel = 2;
+    int sample_per_pixel = 100;
    
     float3 pixelColorPRD = make_float3(1.f, 1.f, 1.f);
+    
+
+    float3 outputPixel = make_float3(0.f, 0.f, 0.f);
+
     for (int i = 0; i < sample_per_pixel ; i++) {
 
         // the miss or hit program, anyway
@@ -612,7 +615,8 @@ namespace osc {
         prd.seed = 1;
         prd.depth = 0;
 
-        int depth = 2;
+        int depth = 5;
+      
 
         for (; prd.depth < depth ; prd.depth ++ ) {
 
@@ -630,22 +634,23 @@ namespace osc {
                 prd
             );
 
-            pixelColorPRD *= prd.attenuation;
-            pixelColorPRD += prd.emitted;
 
-            
+     
+            pixelColorPRD = prd.emitted + prd.attenuation * pixelColorPRD;
 
             if (prd.done) // TODO RR, variable for depth
                 break;
             ray_origin = float_to_vec(prd.origin);
             rayDir = float_to_vec(prd.direction);
 
-            //++prd.depth;
-            //pixelColorPRD += prd.emitted;
+            
         }
+        outputPixel += pixelColorPRD;
+
     }
     auto scale = 1.0 / sample_per_pixel;
-
+    pixelColorPRD = outputPixel;
+    printf("%f %f %f\n", pixelColorPRD.x, pixelColorPRD.y, pixelColorPRD.z);
     pixelColorPRD.x = sqrt(scale * pixelColorPRD.x);
     pixelColorPRD.y = sqrt(scale * pixelColorPRD.y);
     pixelColorPRD.z = sqrt(scale * pixelColorPRD.z);
