@@ -126,7 +126,11 @@ namespace gdt {
   // inline __both__ float cos(float f) { return ::cosf(f); }
   // inline __both__ double cos(double f) { return ::cos(f); }
 
-  using ::saturate;
+  __host__ __device__ __forceinline__
+      float saturate(float x)
+  {
+      return fminf(fmaxf(x, 0.0f), 1.0f);
+  }
 #else
   using std::min;
   using std::max;

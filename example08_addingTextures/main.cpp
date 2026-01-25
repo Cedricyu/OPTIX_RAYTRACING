@@ -118,57 +118,8 @@ namespace osc {
     extern "C" int main(int ac, char** av)
     {
 
-        const char* definePath = "C:\\Users\\derrick629\\Desktop\\OPTIX_RAYTRACING-main\\OPTIX_RAYTRACING-main\\models";
-        const char* extenName = "*.*";
-
-        char* curPath;
-        curPath = getcwd(NULL, 0);
-        // printf("%s\n", curPath);
-
-        // get models
-        char buff[1024];
-        _chdir(definePath);
-        unsigned long long hFile;
-        struct _finddata_t fileName;
-        hFile = _findfirst(extenName, &fileName);
-        int count = 0;
-        char** modelList;
-        modelList = (char**)malloc(sizeOfModelList * sizeof(char*));
-
-        do {
-            // if the path isn't "." or ".."
-            if (!strstr(fileName.name, ".")) {
-                int lenOfName = strlen(fileName.name);
-                modelList[count] = (char*)malloc((lenOfName + 1) * sizeof(char));
-                if (modelList[count] != NULL) {
-                    strncpy(modelList[count], fileName.name, lenOfName);
-                    modelList[count][lenOfName] = '\0';
-                    count++;
-                }
-            }
-        } while (hFile != -1 && _findnext(hFile, &fileName) == 0);
-        _findclose(hFile);
-        _chdir(curPath);
-
-
-        for (int i = 0; i < count; i++) {
-            printf("(%d) %s \n", i, modelList[i]);
-        }
-
-        int option;
-        printf("Enter the number of the model you wanna play with: ");
-        scanf("%d", &option);
-
-        char modelPath[] = "../../models/";
-        char* modelName = NULL;
-        int lenOfName = strlen(modelList[option]);
-        modelName = (char*)malloc((strlen(modelList[option]) * 2 + 6) * sizeof(char));
-        strcpy(modelName, modelList[option]);
-        strcat(modelName, "/");
-        strcat(modelName, modelList[option]);
-        strcat(modelName, ".obj");
-        strcat(modelName, "\0");
-        strcat(modelPath, modelName);
+        const char* modelPath =
+            "C:/Users/USER/Desktop/OPTIX_RAYTRACING/models/sponza.obj";
 
         try {
             // char modelPath[] = "../../models/sponza/sponza.obj";

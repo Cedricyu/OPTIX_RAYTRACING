@@ -134,6 +134,7 @@ namespace osc {
     /*! @} */
 
     CUDABuffer colorBuffer;
+    CUDABuffer accumBuffer;
 
     /*! the camera we are to render with. */
     Camera lastSetCamera;

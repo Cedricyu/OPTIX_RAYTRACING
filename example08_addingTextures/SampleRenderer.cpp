@@ -284,26 +284,34 @@ namespace osc {
   /*! helper function that initializes optix and checks for errors */
   void SampleRenderer::initOptix()
   {
-    std::cout << "#osc: initializing optix..." << std::endl;
-      
-    // -------------------------------------------------------
-    // check for available optix7 capable devices
-    // -------------------------------------------------------
-    cudaFree(0);
-    int numDevices;
-    cudaGetDeviceCount(&numDevices);
-    if (numDevices == 0)
-      throw std::runtime_error("#osc: no CUDA capable devices found!");
-    std::cout << "#osc: found " << numDevices << " CUDA devices" << std::endl;
+      std::cout << "#osc: initializing optix..." << std::endl;
 
-    // -------------------------------------------------------
-    // initialize optix
-    // -------------------------------------------------------
-    OPTIX_CHECK( optixInit() );
-    std::cout << GDT_TERMINAL_GREEN
-              << "#osc: successfully initialized optix... yay!"
-              << GDT_TERMINAL_DEFAULT << std::endl;
+      // 強制初始化 CUDA runtime
+      cudaError_t rc = cudaFree(0);
+      if (rc != cudaSuccess) {
+          std::cerr << "CUDA init failed: "
+              << cudaGetErrorString(rc) << std::endl;
+          throw std::runtime_error("CUDA init failed");
+      }
+
+      int numDevices = 0;
+      rc = cudaGetDeviceCount(&numDevices);
+      if (rc != cudaSuccess) {
+          std::cerr << "cudaGetDeviceCount failed: "
+              << cudaGetErrorString(rc) << std::endl;
+          throw std::runtime_error("cudaGetDeviceCount failed");
+      }
+
+      if (numDevices == 0)
+          throw std::runtime_error("No CUDA devices found!");
+
+      std::cout << "#osc: found " << numDevices << " CUDA devices" << std::endl;
+
+      OPTIX_CHECK(optixInit());
+
+      std::cout << "#osc: OptiX initialized successfully" << std::endl;
   }
+
 
   static void context_log_cb(unsigned int level,
                              const char *tag,
@@ -359,14 +367,14 @@ namespace osc {
       
     char log[2048];
     size_t sizeof_log = sizeof( log );
-    OPTIX_CHECK(optixModuleCreateFromPTX(optixContext,
-                                         &moduleCompileOptions,
-                                         &pipelineCompileOptions,
-                                         ptxCode.c_str(),
-                                         ptxCode.size(),
-                                         log,&sizeof_log,
-                                         &module
-                                         ));
+    OPTIX_CHECK(optixModuleCreate(optixContext,
+                                    &moduleCompileOptions,
+                                    &pipelineCompileOptions,
+                                    ptxCode.c_str(),
+                                    ptxCode.size(),
+                                    log,&sizeof_log,
+                                    &module
+                                    ));
     if (sizeof_log > 1) PRINT(log);
   }
     
@@ -543,6 +551,8 @@ namespace osc {
       rec.data.vertex   = (vec3f*)vertexBuffer[meshID].d_pointer();
       rec.data.normal   = (vec3f*)normalBuffer[meshID].d_pointer();
       rec.data.texcoord = (vec2f*)texcoordBuffer[meshID].d_pointer();
+      rec.data.emission = mesh->emission;
+      rec.data.isLight = mesh->isLight;
       hitgroupRecords.push_back(rec);
     }
     hitgroupRecordsBuffer.alloc_and_upload(hitgroupRecords);
@@ -551,33 +561,41 @@ namespace osc {
     sbt.hitgroupRecordCount         = (int)hitgroupRecords.size();
   }
 
-
-
   /*! render one frame */
   void SampleRenderer::render()
   {
-    // sanity check: make sure we launch only after first resize is
-    // already done:
-    if (launchParams.frame.size.x == 0) return;
-      
-    launchParamsBuffer.upload(&launchParams,1);
-      
-    OPTIX_CHECK(optixLaunch(/*! pipeline we're launching launch: */
-                            pipeline,stream,
-                            /*! parameters and SBT */
-                            launchParamsBuffer.d_pointer(),
-                            launchParamsBuffer.sizeInBytes,
-                            &sbt,
-                            /*! dimensions of the launch: */
-                            launchParams.frame.size.x,
-                            launchParams.frame.size.y,
-                            1
-                            ));
-    // sync - make sure the frame is rendered before we download and
-    // display (obviously, for a high-performance application you
-    // want to use streams and double-buffering, but for this simple
-    // example, this will have to do)
-    CUDA_SYNC_CHECK();
+      // sanity check: make sure we launch only after first resize is
+      // already done:
+      if (launchParams.frame.size.x == 0) return;
+
+      launchParamsBuffer.upload(&launchParams, 1);
+
+      const int SPP = 10;
+      int width = launchParams.frame.size.x;
+      int height = launchParams.frame.size.y;
+
+      cudaMemset(launchParams.accumBuffer, 0,
+          width * height * sizeof(vec3f));
+      launchParams.frame.spp = SPP;
+
+      OPTIX_CHECK(optixLaunch(/*! pipeline we're launching launch: */
+          pipeline, stream,
+          /*! parameters and SBT */
+          launchParamsBuffer.d_pointer(),
+          launchParamsBuffer.sizeInBytes,
+          &sbt,
+          /*! dimensions of the launch: */
+          launchParams.frame.size.x,
+          launchParams.frame.size.y,
+          SPP
+      ));
+      // sync - make sure the frame is rendered before we download and
+      // display (obviously, for a high-performance application you
+      // want to use streams and double-buffering, but for this simple
+      // example, this will have to do)
+
+      CUDA_SYNC_CHECK();
+
   }
 
   /*! set camera to render with */
@@ -609,6 +627,10 @@ namespace osc {
     // launch:
     launchParams.frame.size  = newSize;
     launchParams.frame.colorBuffer = (uint32_t*)colorBuffer.d_pointer();
+
+    accumBuffer.resize(newSize.x * newSize.y * sizeof(vec3f));
+    launchParams.accumBuffer = (vec3f*)accumBuffer.d_pointer();
+
 
     // and re-set the camera, since aspect may have changed
     setCamera(lastSetCamera);

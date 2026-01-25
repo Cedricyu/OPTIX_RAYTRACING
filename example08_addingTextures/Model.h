@@ -34,6 +34,10 @@ namespace osc {
     // material data:
     vec3f              diffuse;
     int                diffuseTextureID { -1 };
+
+    vec3f              emission{ 0.f };
+    bool               isLight{ false };
+
   };
 
   struct Texture {
@@ -58,4 +62,6 @@ namespace osc {
   };
 
   Model *loadOBJ(const std::string &objFile);
+
+
 }

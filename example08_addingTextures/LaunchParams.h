@@ -30,14 +30,20 @@ namespace osc {
     vec3i *index;
     bool                hasTexture;
     cudaTextureObject_t texture;
+
+    vec3f emission;
+    bool  isLight = false;
   };
-  
+
   struct LaunchParams
   {
     struct {
       uint32_t *colorBuffer;
       vec2i     size;
+      uint32_t spp;
     } frame;
+
+    vec3f* accumBuffer;
     
     struct {
       vec3f position;

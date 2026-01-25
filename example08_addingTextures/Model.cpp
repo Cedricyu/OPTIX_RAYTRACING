@@ -1,4 +1,4 @@
-// ======================================================================== //
+﻿// ======================================================================== //
 // Copyright 2018-2019 Ingo Wald                                            //
 //                                                                          //
 // Licensed under the Apache License, Version 2.0 (the "License");          //
@@ -210,6 +210,38 @@ namespace osc {
         model->bounds.extend(vtx);
 
     std::cout << "created a total of " << model->meshes.size() << " meshes" << std::endl;
+
+    TriangleMesh* light = new TriangleMesh;
+
+    light->vertex = {
+        vec3f(-50.f, 300.f, -50.f),
+        vec3f(+50.f, 300.f, -50.f),
+        vec3f(+50.f, 300.f, +50.f),
+        vec3f(-50.f, 300.f, +50.f),
+    };
+
+    light->index = {
+        vec3i(0, 1, 2),
+        vec3i(0, 2, 3)
+    };
+
+    light->normal = {
+        vec3f(0.f, -1.f, 0.f),
+        vec3f(0.f, -1.f, 0.f),
+        vec3f(0.f, -1.f, 0.f),
+        vec3f(0.f, -1.f, 0.f),
+    };
+
+    light->diffuse = vec3f(0.f);
+    light->diffuseTextureID = -1;
+
+    light->emission = vec3f(200.f, 200.f, 200.f);
+    light->isLight = true;
+
+    model->meshes.push_back(light);
+
+    for (auto& v : light->vertex)
+        model->bounds.extend(v);
     return model;
   }
 }

@@ -20,6 +20,7 @@ include_directories(${OptiX_INCLUDE})
 
 cuda_compile_and_embed(embedded_ptx_code devicePrograms.cu)
 
+
 add_executable(ex08_addingTextures
   ${embedded_ptx_code}
   optix7.h
@@ -30,7 +31,7 @@ add_executable(ex08_addingTextures
   Model.h
   Model.cpp
   main.cpp
-  )
+ )
 
 target_link_libraries(ex08_addingTextures
   gdt
