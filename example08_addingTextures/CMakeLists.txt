@@ -42,5 +42,6 @@ target_link_libraries(ex08_addingTextures
   # glfw and opengl, for display
   glfWindow
   glfw
+  imgui
   ${OPENGL_gl_LIBRARY}
   )

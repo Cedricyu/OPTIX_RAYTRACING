@@ -66,6 +66,39 @@ add_subdirectory(common/glfWindow EXCLUDE_FROM_ALL)
 
 
 # ------------------------------------------------------------------
+# ImGui
+# ------------------------------------------------------------------
+set(IMGUI_DIR ${PROJECT_SOURCE_DIR}/imgui)
+
+add_library(imgui STATIC
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+)
+
+find_package(OpenGL REQUIRED)
+
+if (WIN32)
+  set(IMGUI_GL_LIB opengl32)
+else()
+  set(IMGUI_GL_LIB OpenGL::GL)
+endif()
+
+target_link_libraries(imgui PUBLIC
+    glfw
+    ${IMGUI_GL_LIB}
+)
+
+
+# ------------------------------------------------------------------
 # and final build rules for the project
 # ------------------------------------------------------------------
 

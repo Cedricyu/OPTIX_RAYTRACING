@@ -194,6 +194,15 @@ namespace osc {
                                                knownTextures,
                                                materials[materialID].diffuse_texname,
                                                modelDir);
+          const auto& mat = materials[materialID];
+          if (mat.emission[0] > 0.f || mat.emission[1] > 0.f || mat.emission[2] > 0.f) {
+              mesh->emission = (const vec3f&)mat.emission;
+              mesh->isLight = true;
+          }
+          else {
+              mesh->emission = vec3f(0.f);
+              mesh->isLight = false;
+          }
         }
 
         if (mesh->vertex.empty())
@@ -214,10 +223,10 @@ namespace osc {
     TriangleMesh* light = new TriangleMesh;
 
     light->vertex = {
-        vec3f(-50.f, 300.f, -50.f),
-        vec3f(+50.f, 300.f, -50.f),
-        vec3f(+50.f, 300.f, +50.f),
-        vec3f(-50.f, 300.f, +50.f),
+        vec3f(-1.0f, 3.0f, -1.0f),
+        vec3f(+1.0f, 3.0f, -1.0f),
+        vec3f(+1.0f, 3.0f, +1.0f),
+        vec3f(-1.0f, 3.0f, +1.0f),
     };
 
     light->index = {
@@ -235,7 +244,7 @@ namespace osc {
     light->diffuse = vec3f(0.f);
     light->diffuseTextureID = -1;
 
-    light->emission = vec3f(200.f, 200.f, 200.f);
+    light->emission = vec3f(1.0f, 1.0f, 1.0f);
     light->isLight = true;
 
     model->meshes.push_back(light);

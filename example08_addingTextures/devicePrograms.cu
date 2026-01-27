@@ -20,7 +20,7 @@
 #include "sampling.cuh"
 #include "LaunchParams.h"
 
-#define MAX_DEPTH 5
+#define MAX_DEPTH 10
 
 using namespace osc;
 
@@ -30,6 +30,25 @@ enum RayType {
     RAY_TYPE_COUNT
 };
 
+__device__ inline float clamp01(float x) {
+    return fminf(fmaxf(x, 0.f), 1.f);
+}
+
+__device__ inline vec3f tonemap_exposure_gamma(vec3f c, float exposure)
+{
+    // exposure tone map: 1 - exp(-c * exposure)
+    c.x = 1.f - expf(-c.x * exposure);
+    c.y = 1.f - expf(-c.y * exposure);
+    c.z = 1.f - expf(-c.z * exposure);
+
+    // gamma (sRGB-ish)
+    const float invGamma = 1.f / 2.2f;
+    c.x = powf(clamp01(c.x), invGamma);
+    c.y = powf(clamp01(c.y), invGamma);
+    c.z = powf(clamp01(c.z), invGamma);
+
+    return c;
+}
 
 namespace osc {
 
@@ -77,21 +96,15 @@ namespace osc {
 
     extern "C" __global__ void __closesthit__radiance()
     {
-        const TriangleMeshSBTData& sbtData
-            = *(const TriangleMeshSBTData*)optixGetSbtDataPointer();
+        const TriangleMeshSBTData& sbtData =
+            *(const TriangleMeshSBTData*)optixGetSbtDataPointer();
 
-        // ------------------------------------------------------------------
-        // gather some basic hit information
-        // ------------------------------------------------------------------
-        const int   primID = optixGetPrimitiveIndex();
+        const int primID = optixGetPrimitiveIndex();
         const vec3i index = sbtData.index[primID];
         const float u = optixGetTriangleBarycentrics().x;
         const float v = optixGetTriangleBarycentrics().y;
 
-        // ------------------------------------------------------------------
-        // compute normal, using either shading normal (if avail), or
-        // geometry normal (fallback)
-        // ------------------------------------------------------------------
+        // ---------------- normal ----------------
         vec3f N;
         if (sbtData.normal) {
             N = (1.f - u - v) * sbtData.normal[index.x]
@@ -106,104 +119,36 @@ namespace osc {
         }
         N = normalize(N);
 
-        // ------------------------------------------------------------------
-        // compute diffuse material color, including diffuse texture, if
-        // available
-        // ------------------------------------------------------------------
+        // ---------------- albedo ----------------
         vec3f diffuseColor = sbtData.color;
         if (sbtData.hasTexture && sbtData.texcoord) {
-            const vec2f tc
-                = (1.f - u - v) * sbtData.texcoord[index.x]
-                + u * sbtData.texcoord[index.y]
-                + v * sbtData.texcoord[index.z];
-
-            vec4f fromTexture = tex2D<float4>(sbtData.texture, tc.x, tc.y);
-            diffuseColor *= (vec3f)fromTexture;
+            const vec2f tc =
+                (1.f - u - v) * sbtData.texcoord[index.x] +
+                u * sbtData.texcoord[index.y] +
+                v * sbtData.texcoord[index.z];
+            vec4f tex = tex2D<float4>(sbtData.texture, tc.x, tc.y);
+            diffuseColor *= (vec3f)tex;
         }
 
-        const vec3f rayDir = optixGetWorldRayDirection();
-        float cosDN = max(0.f, dot(-rayDir, N));
         RadiancePRD& prd = *(RadiancePRD*)getPRD<RadiancePRD>();
 
-        const float tHit = optixGetRayTmax();
         const vec3f rayOrg = optixGetWorldRayOrigin();
+        const vec3f rayDir = optixGetWorldRayDirection();
+        const float tHit = optixGetRayTmax();
         const vec3f hitPoint = rayOrg + tHit * rayDir;
 
+        const float invPi = 1.0f / 3.14159265f;
+
+        // ---------------- hit light ----------------
         if (sbtData.isLight) {
-            prd.radiance += gdt::vec3f(
-                prd.throughput.x * sbtData.emission.x,
-                prd.throughput.y * sbtData.emission.y,
-                prd.throughput.z * sbtData.emission.z
-            );
+            prd.radiance += prd.throughput * sbtData.emission;
             return;
         }
 
+        // ---------------- terminate ----------------
         if (prd.depth >= MAX_DEPTH) {
-            vec3f env = vec3f(0.1f);
-            prd.radiance += prd.throughput * env;
+            prd.radiance += prd.throughput * vec3f(0.05f);
             return;
-        }
-
-        float u1 = rnd(prd.seed);
-        float u2 = rnd(prd.seed);
-
-        vec3f A = vec3f(-50.f, 300.f, -50.f);
-        vec3f B = vec3f(+50.f, 300.f, -50.f);
-        vec3f C = vec3f(+50.f, 300.f, +50.f);
-        vec3f D = vec3f(-50.f, 300.f, +50.f);
-        const float area = 100.f * 100.f;
-
-        vec3f lightPos =
-            (u1 + u2 < 1.f)
-            ? A + u1 * (B - A) + u2 * (C - A)
-            : A + (1.f - u1) * (D - A) + (1.f - u2) * (C - A);
-
-        vec3f toLight = lightPos - hitPoint;
-        float dist2 = dot(toLight, toLight);
-        float dist = sqrtf(dist2);        
-        vec3f wi = toLight / dist;
-
-        ShadowPRD sprd;
-        sprd.inShadow = true;
-
-        uint32_t s0, s1;
-        packPointer(&sprd, s0, s1);
-        vec3f wiL = toLight / dist;
-
-        float cosNL = dot(N, wiL);
-
-        if (cosNL > 0.f) {
-
-            uint32_t s0, s1;
-            packPointer(&sprd, s0, s1);
-
-            optixTrace(
-                optixLaunchParams.traversable,
-                hitPoint + 1e-4f * N,
-                wiL,
-                1e-4f,
-                dist - 1e-4f,
-                0.0f,
-                OptixVisibilityMask(255),
-                OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT |
-                OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
-                SHADOW_RAY_TYPE,
-                RAY_TYPE_COUNT,
-                SHADOW_RAY_TYPE,
-                s0, s1
-            );
-
-            if (sprd.inShadow) {
-                // Lambert BRDF: f = albedo / pi
-                vec3f f = vec3f(diffuseColor.x * (1.f / 3.14), diffuseColor.y * (1.f / 3.14), diffuseColor.z * (1.f / 3.14));
-
-                // area pdf -> solid angle pdf
-                // pdfW = dist^2 / (cosLL * area)
-                float pdfW = dist2 / (area);
-
-                // direct contribution
-                prd.radiance += prd.throughput * f;
-            }
         }
 
         vec3f wr = cosineSampleHemisphere(prd.seed);
@@ -213,10 +158,8 @@ namespace osc {
         if (cosTheta <= 0.f) return;
 
         prd.throughput *= diffuseColor;
-
         prd.depth++;
 
-        // trace next
         uint32_t p0, p1;
         packPointer(&prd, p0, p1);
 
@@ -228,19 +171,18 @@ namespace osc {
             1e20f,
             0.0f,
             OptixVisibilityMask(255),
-            OPTIX_RAY_FLAG_DISABLE_ANYHIT,//OPTIX_RAY_FLAG_NONE,
-            SURFACE_RAY_TYPE,             // SBT offset
-            RAY_TYPE_COUNT,               // SBT stride
-            SURFACE_RAY_TYPE,             // missSBTIndex 
+            OPTIX_RAY_FLAG_DISABLE_ANYHIT,
+            SURFACE_RAY_TYPE,
+            RAY_TYPE_COUNT,
+            SURFACE_RAY_TYPE,
             p0, p1
         );
-
     }
 
     extern "C" __global__ void __anyhit__radiance()
     { /*! for this simple example, this will remain empty */
         ShadowPRD& prd = *(ShadowPRD*)getPRD<ShadowPRD>();
-        prd.inShadow = false;
+        prd.visible = false;
 
         optixTerminateRay();
     }
@@ -320,11 +262,16 @@ namespace osc {
         vec3f* AccumPixel = optixLaunchParams.accumBuffer;
         AccumPixel[pixelId] += pixelColor;
 
-        if (si == 9) {
+        if (si == 99) {
             vec3f pixel = optixLaunchParams.accumBuffer[pixelId];
-            vec3f color = vec3f(pixel.x / float(optixLaunchParams.frame.spp), pixel.y / float(optixLaunchParams.frame.spp), pixel.z / float(optixLaunchParams.frame.spp));
+            vec3f color = pixel / float(optixLaunchParams.frame.spp);
 
-             //clamp / tonemap（先最簡單）
+            // exposure tone mapping
+            float exposure = 1.0f;
+            color = tonemap_exposure_gamma(color, /*exposure*/ 1.0f);
+
+
+            // clamp 只是保險，不是主角
             color.x = fminf(color.x, 1.f);
             color.y = fminf(color.y, 1.f);
             color.z = fminf(color.z, 1.f);
@@ -335,6 +282,7 @@ namespace osc {
 
             optixLaunchParams.frame.colorBuffer[pixelId] =
                 0xff000000 | (r << 0) | (g << 8) | (b << 16);
+
         }
     }
 } // ::osc

@@ -12,5 +12,5 @@ struct RadiancePRD {
 };
 
 struct ShadowPRD {
-    bool inShadow;
+    bool visible;
 };

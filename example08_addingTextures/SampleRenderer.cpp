@@ -570,7 +570,7 @@ namespace osc {
 
       launchParamsBuffer.upload(&launchParams, 1);
 
-      const int SPP = 10;
+      const int SPP = 100;
       int width = launchParams.frame.size.x;
       int height = launchParams.frame.size.y;
 
